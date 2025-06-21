@@ -1,12 +1,14 @@
+
 //////////////////////////////////////////////////////////////////
 // Pixel Game Engine Mobile Release 2.2.9,                      //
-// John Galvin aka Johnngy63: 15-Jun-2025                       //
-// New Lightweight 3d Support. iOS sensors not supported yet    //
+// John Galvin aka Johnngy63: 21-Jun-2025                       //
+// New Support for 3D iOS sensors not supported yet             //
 // Please report all bugs to https://discord.com/invite/WhwHUMV //
-// Or on Github: https://github.com/Johnnyg63                    //
+// Or on Github: https://github.com/Johnnyg63                   //
 //////////////////////////////////////////////////////////////////
 
 // Set up headers for the different platforms
+// #define  __ANDROID__
 #if defined (__ANDROID__)
 
 #include "pch.h"
@@ -31,12 +33,13 @@
 
 #define OLC_PGE_APPLICATION
 #define OLC_IMAGE_STB
+#include "utilities/olcUTIL_Hardware3D.h"
 #include "olcPixelGameEngine_Mobile.h"
 
 #define OLC_PGEX_MINIAUDIO
 #include "olcPGEX_MiniAudio.h"  // Checkout https://github.com/Moros1138/olcPGEX_MiniAudio Thanks Moros1138
 
-#include <fstream> // Used for saving the savestate to a file
+#include <fstream> // Used for saving the save state to a file
 
 /// <summary>
 /// To ensure proper cross platform support keep the class name as PGE_Mobile
@@ -48,26 +51,76 @@ class PGE_Mobile : public olc::PixelGameEngine {
 public:
 
     PGE_Mobile() {
-        sAppName = "Android/iOS Demo";
+        sAppName = "TEST3DMountains";
     }
+
+    olc::mf4d matWorld;
+    olc::mf4d matView;
+    olc::mf4d matProject;
+    olc::utils::hw3d::mesh meshMountain;
+    olc::Renderable gfx1;
+
+    olc::vf3d vf3dUp = { 0.0f, 1.0f, 0.0f };                // vf3d up direction
+    olc::vf3d vf3dCamera = { -5.0f, 10.5f, -10.0f };         // vf3d camera direction
+    olc::vf3d vf3dLookDir = { 0.0f, 0.0f, 1.0f };           // vf3d look direction
+    olc::vf3d vf3dForward = { 0.0f, 0.0f, 0.0f };           // vf3d Forward direction
+    olc::vf3d vf3dOffset = { -5.0f, 10.5f, -10.0f };         // vf3d Offset
+    olc::vf3d vf3dSunLocation = { 100.0f, 100.0f, 100.0f }; // vf3d Sun Location
+
+    float fYaw = 0.0f;            // FPS Camera rotation in X plane
+    float fYawRoC = 1.0f;        // fYaw Rate of Change Look Up/Down
+    float fTheta = 0.0f;        // Spins World transform
+    float fThetaRoC = 1.5f;        // fTheta Rate of Change Spin Left/Right
+    float fStrifeRoC = 8.5f;    // Strife Rate of Change, thanks: #Boguslavv
+    float fForwardRoC = 8.0f;   // Forward/Backwards Rate of Change
+
+    float fSphereRoC = 0.5f;    // Sphere Rate of Change
+    float fSphereRotationY = -1.57079633; // Sphere start Y rotation position
+
+    float fJump = vf3dOffset.y;     // Monitors jump height so we can land again
+    float fJumpRoC = 4.0f;    // fTheta Rate of Change
+
 
     /* Vectors */
     std::vector<std::string> vecMessages;
     /* END Vectors*/
 
-    int nFrameCount = 0;
-    int nStep = 20;
+    uint32_t nFrameCount = 0;
+    float fStep = 20.0f;
+    olc::vf2d vf2MessPos = { 10.0f, 10.0f };
 
     /* Sprites */
     olc::Sprite* sprTouchTester = nullptr;
     olc::Sprite* sprOLCPGEMobLogo = nullptr;
+    olc::Sprite* sprLandScape = nullptr;
     /* END Sprites*/
 
     /* Decals */
     olc::Decal* decTouchTester = nullptr;
     olc::Decal* decOLCPGEMobLogo = nullptr;
+    olc::Decal* decLandScape = nullptr;
     /* End Decals */
 
+    /* Renders */
+    olc::Renderable renTestCube;
+    olc::Renderable renBrick;
+    olc::Renderable renEarth;
+    olc::Renderable renSkyCube;
+    /* End Renders */
+
+
+
+
+// 3D Camera
+    olc::utils::hw3d::Camera3D Cam3D;
+
+    // Sanity Cube
+    olc::utils::hw3d::mesh matSanityCube;
+    olc::utils::hw3d::mesh matSkyCube;
+    olc::utils::hw3d::mesh matTriangle;
+    olc::utils::hw3d::mesh matPyramid;
+    olc::utils::hw3d::mesh mat4SPyramid;
+    olc::utils::hw3d::mesh matSphere;
 
     /* Sensors */
     std::vector<olc::SensorInformation> vecSensorInfos;
@@ -87,12 +140,19 @@ public:
     // The instance of the audio engine, no fancy config required.
     olc::MiniAudio ma;
 
+    // Manage Touch points
+    olc::vi2d centreScreenPos;
+    olc::vi2d leftCenterScreenPos;
+    olc::vi2d rightCenterScreenPos;
+
+
+
 
 public:
     //Example Save State Struct and Vector for when your app is paused
     struct MySaveState {
         std::string key;
-        int value;
+        int value = 0;
     };
 
     std::vector<MySaveState> vecLastState;
@@ -101,79 +161,65 @@ public:
 
 public:
     bool OnUserCreate() override {
-        //NOTE: To access the features with your phone device use:
-#if defined(__ANDROID__)
-        // Access android directly
-        //android_app* pMyAndroid = this->pOsEngine.app;
 
-        // USE OF SOUND olcPGE_MiniAudio
+        float fAspect = float(GetScreenSize().y) / float(GetScreenSize().x);
+        float S = 1.0f / (tan(3.14159f * 0.25f));
+        float f = 1000.0f;
+        float n = 0.1f;
+
+        matWorld.identity();
+        matView.identity();
+
+        Cam3D.SetScreenSize(GetScreenSize());
+        Cam3D.SetClippingPlanes(n, f);
+        Cam3D.SetFieldOfView(S);
+
         /*
-         * For Android you cannot play the sounds directly from the assets as you would
-         * on a Windows/Mac/Linux system. Android compress your assets in a compress file to
-         * save on valuable phone storage. AndroidAudio (AAudio), miniAudio, and most others need
-         * to be able to stream the music data, in short they are not very good at streaming for
-         * a compress file.
-         * Therefore you will need to extract these sound files to internal storage so the sounds
-         * can be played.
-         *
-         * In short, as I know you didn't read the above, you cannot stream from an asset in Android
-         *
-         */
+         * Loading object (blender. mp3 etc) files is different on the PGE Mobile to PGE
+         * Loading of images (bmp, png etc) is the exact same as PGE
+         *      I don't make the runs, Google and Apple do.
+         * The example below shows how to do it
+         * */
 
-        std::string songFullPath = (std::string)app_GetInternalAppStorage() + "/sounds/song1.mp3";
-        olc::rcode fileRes = olc::filehandler->ExtractFileFromAssets("sounds/song1.mp3", songFullPath);
+        // PGE 2.0 Code:
+        // auto t = olc::utils::hw3d::LoadObj("./assets/teapot.obj");
+        // I know simple right, however mobile devices are different
 
-        switch (fileRes) {
-
-        case olc::rcode::NO_FILE:
-        { break; }
-        case olc::rcode::FAIL:
-        { break; }
-        case olc::rcode::OK:
-        {
-            // only load the song if it is not already loaded
-            song1 = ma.LoadSound(songFullPath);
-
-            break;
-        }
-        }
-
-        sampleAFullPath = (std::string)app_GetInternalAppStorage() + "/sounds/SampleA.wav";
-        olc::rcode result = olc::filehandler->ExtractFileFromAssets("sounds/SampleA.wav", sampleAFullPath);
-
-
+#if defined (__ANDROID__)
+        // 1: We need to get the path to where your phone OS as placed it your app
+        std::string strObjectFileFullPath = (std::string)app_GetExternalAppStorage()  + "/objectfiles/mountains.obj";
+#else
+        // NOTE: for iOS use:
+        // 1: We need to get the path to where your phone OS as placed it your app
+        std::string strObjectFileFullPath = (std::string)app_GetInternalAppStorage()  + "/objectfiles/mountains.obj";
 #endif
+        
+        
 
-#if defined(__APPLE__)
-        // Access iOS directly
-        //apple_app* pMyApple = this->pOsEngine.app;
+        // 2: Now we need to extract the file from compress storage to usable store
+        olc::rcode fileRes = olc::filehandler->ExtractFileFromAssets("objectfiles/mountains.obj", strObjectFileFullPath);
+        // Note for iOS use: TODO, add fileHander path as it is different to Android
 
-        // USE OF SOUND olcPGE_MiniAudio
-
-        std::string songFullPath = (std::string)app_GetInternalAppStorage() + "/sounds/song1.mp3";
-        olc::rcode fileRes = olc::filehandler->ExtractFileFromAssets("sounds/song1.mp3", songFullPath);
-
+        // 3 Use the olc::rcode to check if everything worked
         switch (fileRes) {
 
-        case olc::rcode::NO_FILE:
-        { break; }
-        case olc::rcode::FAIL:
-        { break; }
-        case olc::rcode::OK:
-        {
-            if (song1 < 0)
+            case olc::rcode::NO_FILE:
+            case olc::rcode::FAIL:
+            { break; }
+            case olc::rcode::OK:
             {
-                song1 = ma.LoadSound(songFullPath);
+                auto t = olc::utils::hw3d::LoadObj(strObjectFileFullPath);
+                if (t.has_value())
+                {
+                    meshMountain = *t;
+                } else
+                {
+                    int pause = 0; // TODO: Remove. We have an issue
+                }
             }
-
-            break;
-        }
         }
 
-        sampleAFullPath = (std::string)app_GetInternalAppStorage() + "/sounds/SampleA.wav";
-        olc::filehandler->ExtractFileFromAssets("sounds/SampleA.wav", sampleAFullPath);
-
-#endif
+        Clear(olc::BLUE);
 
         sprTouchTester = new olc::Sprite("images/north_south_east_west_logo.png");
         decTouchTester = new olc::Decal(sprTouchTester);
@@ -181,17 +227,34 @@ public:
         sprOLCPGEMobLogo = new olc::Sprite("images/olcpgemobilelogo.png");
         decOLCPGEMobLogo = new olc::Decal(sprOLCPGEMobLogo);
 
+        // TODO: Change this to a renederable
+        sprLandScape = new olc::Sprite("images/MountainTest1.jpg");
+        decLandScape = new olc::Decal(sprLandScape);
+
+        // Manage Touch points
+        centreScreenPos = GetScreenSize();
+        centreScreenPos.x = centreScreenPos.x / 2;
+        centreScreenPos.y = centreScreenPos.y / 2;
+
+        leftCenterScreenPos = GetScreenSize();
+        leftCenterScreenPos.x = leftCenterScreenPos.x / 100 * 25; //TODO remove magic numbers
+        leftCenterScreenPos.y = leftCenterScreenPos.y / 2;
+
+        rightCenterScreenPos = GetScreenSize();
+        rightCenterScreenPos.x = rightCenterScreenPos.x / 100 * 75;
+        rightCenterScreenPos.y = rightCenterScreenPos.y / 2;
+
 
         return true;
     }
 
-    /// <summary>
+    // <summary>
     /// Draws a Target Pointer at the center position of Center Point
     /// </summary>
     /// <param name="vCenterPoint">Center Position of the target</param>
     /// <param name="nLineLength">Length of lines</param>
     /// <param name="nCircleRadius">Center Circle radius</param>
-    void DrawTargetPointer(olc::vi2d vCenterPoint, int32_t nLineLength, int32_t nCircleRadius, olc::Pixel p = olc::WHITE)
+    void DrawTargetPointer(const olc::vi2d& vCenterPoint, int32_t nLineLength, int32_t nCircleRadius, olc::Pixel p = olc::WHITE)
     {
         /*
                         |
@@ -205,21 +268,218 @@ public:
         FillCircle(vCenterPoint, nCircleRadius, p);
         DrawLine(vCenterPoint, { vCenterPoint.x, vCenterPoint.y + nLineLength }, p);
         DrawLine(vCenterPoint, { vCenterPoint.x, vCenterPoint.y - nLineLength }, p);
-        DrawLine(vCenterPoint, {vCenterPoint.x + nLineLength, vCenterPoint.y }, p);
-        DrawLine(vCenterPoint, {vCenterPoint.x - nLineLength, vCenterPoint.y }, p);
- 
+        DrawLine(vCenterPoint, { vCenterPoint.x + nLineLength, vCenterPoint.y }, p);
+        DrawLine(vCenterPoint, { vCenterPoint.x - nLineLength, vCenterPoint.y }, p);
+
     }
 
     bool OnUserUpdate(float fElapsedTime) override {
 
         SetDrawTarget(nullptr);
-
         Clear(olc::BLUE);
+        // New code:
+        olc::vf3d  vf3Target = {0,0,1};
 
-        nFrameCount = GetFPS();
+        olc::mf4d mRotationX, mRotationY, mRotationZ;  // Rotation Matrices
+        olc::mf4d mPosition, mCollision;                // Position and Collision Matrices
+        olc::mf4d mMovement, mOffset;                   // Movement and Offset Matrices
+
+        // Update our camera position first, as this is what everything else is base upon
+        // Create a "Point At"
+        olc::vf3d vf3dTarget = { 0,0,1 };
+
+        mRotationY.rotateY(fTheta);  // Left/Right
+        mRotationX.rotateX(fYaw);    // Up/Down
+
+        vf3dLookDir = mRotationY * mRotationX * vf3dTarget;   // Left-Right * Up-Down
+        vf3dTarget = vf3dCamera + vf3dLookDir;
+
+        Cam3D.SetPosition(vf3dCamera);
+        Cam3D.SetTarget(vf3dTarget);
+        Cam3D.Update();
+        matWorld = Cam3D.GetViewMatrix();
+
+        // Manage forward / backwards
+        vf3dForward = vf3dLookDir * (fForwardRoC * fElapsedTime);
+
+        ClearBuffer(olc::CYAN, true); // Clear the buffer folks
+
+
+        HW3D_Projection(Cam3D.GetProjectionMatrix().m);
+
+        // Lighting
+        for (size_t i = 0; i < meshMountain.pos.size(); i += 3)
+        {
+            const auto& p0 = meshMountain.pos[i + 0];
+            const auto& p1 = meshMountain.pos[i + 1];
+            const auto& p2 = meshMountain.pos[i + 2];
+
+            olc::vf3d vCross = olc::vf3d(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]).cross(olc::vf3d(p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])).norm();
+
+            olc::vf3d vLight = olc::vf3d(1.0f, 1.0f, 1.0f).norm();
+
+            float illum = std::clamp(vCross.dot(vLight), 0.0f, 1.0f) * 0.6f + 0.4f;
+            meshMountain.col[i + 0] = olc::PixelF(illum, illum, illum, 1.0f);
+            meshMountain.col[i + 1] = olc::PixelF(illum, illum, illum, 1.0f);
+            meshMountain.col[i + 2] = olc::PixelF(illum, illum, illum, 1.0f);
+        }
+
+        // Draw a line
+        HW3D_DrawLine((matWorld).m, { 0.0f, 0.0f, 0.0f }, { 100.0f, 100.0f, 100.0f }, olc::RED);
+
+        // Draw a Box
+        HW3D_DrawLineBox((matWorld).m, { 0.0f, 0.0f, 0.0f }, { 100.0f, 100.0f, 100.0f }, olc::YELLOW);
+
+        // Draw the world
+        HW3D_DrawObject((matWorld).m, decLandScape, meshMountain.layout, meshMountain.pos, meshMountain.uv, meshMountain.col);
+
+        // End new code
+
+        UpdateCamByUserInput(fElapsedTime);
+
+        DisplayMessages();
+
+        // Draw Logo
+        DrawDecal({ 5.0f, (float)ScreenHeight() - 100 }, decOLCPGEMobLogo, { 0.5f, 0.5f });
+
+
+        return true;
+    }
+
+    /*
+    * Updates the cam position by user input
+    * Mouse/Touch/Keyboard
+    */
+    void UpdateCamByUserInput(float fElapsedTime)
+    {
+        // Draw Touch point positions
+        DrawTargetPointer(centreScreenPos, 50, 10);
+        DrawTargetPointer(leftCenterScreenPos, 50, 10, olc::GREEN);
+        DrawTargetPointer(rightCenterScreenPos, 50, 10, olc::RED);
+
+        // End new code
+
+        // Touch 1 handles forward and backwards only
+        if (GetTouch(1).bHeld)
+        {
+            DrawLine(rightCenterScreenPos, GetTouchPos(1), olc::RED, 0xF0F0F0F0);
+            DrawTargetPointer(GetTouchPos(1), 50, 10, olc::RED);
+
+
+            // Moving Forward
+            if ((float)GetTouchY(1) < (((float)rightCenterScreenPos.y /100)*70))
+            {
+                //vf3dCamera.z += fForwardRoC * fElapsedTime;
+                vf3dCamera += vf3dForward;
+            }
+
+            // Moving Backward
+            if ((float)GetTouchY(1) > (((float)rightCenterScreenPos.y /100)*130))
+            {
+                //vf3dCamera.z -= fForwardRoC * fElapsedTime;
+                vf3dCamera -= vf3dForward;
+            }
+
+            // Moving Left (Strife)
+            if ((float)GetTouchX(1) > (((float)rightCenterScreenPos.x / 100)*110) )
+            {
+                vf3dCamera.x += cos(fTheta) * fStrifeRoC * fElapsedTime;
+                vf3dCamera.z += sin(fTheta) * fStrifeRoC * fElapsedTime;
+            }
+
+            // Moving Right (Strife)
+            if ((float)GetTouchX(1) < (((float)rightCenterScreenPos.x / 100)*90))
+            {
+                vf3dCamera.x -= cos(fTheta) * fStrifeRoC * fElapsedTime;
+                vf3dCamera.z -= sin(fTheta) * fStrifeRoC * fElapsedTime;
+            }
+
+            // Moving UP
+            // TODO: Add code so that only when movement is > 20% execute
+            if (GetTouchY(1) < rightCenterScreenPos.y)
+            {
+                //vf3Camera.y -= 0.5f * fElapsedTime;
+            }
+
+            // Moving Down
+            if (GetTouchY(1) > rightCenterScreenPos.y)
+            {
+                //vf3Camera.y += 0.5f * fElapsedTime;
+            }
+
+        }
+
+
+        // Touch zeros (single touch) handles Camera look direction
+        if (GetTouch(0).bHeld)
+        {
+            DrawLine(leftCenterScreenPos, GetTouchPos(), olc::GREEN, 0xF0F0F0F0);
+            DrawTargetPointer(GetTouchPos(), 50, 10, olc::GREEN);
+
+            // We know the Right Center point we need to compare our positions
+            // Looking Right
+            if ((float)GetTouchX(0) > (((float)leftCenterScreenPos.x / 100)*130) )
+            {
+                fTheta -= fThetaRoC * fElapsedTime;
+
+            }
+
+            // Looking Left
+            if ((float)GetTouchX(0) < (((float)leftCenterScreenPos.x / 100)*70))
+            {
+                fTheta += fThetaRoC * fElapsedTime;
+
+
+            }
+
+            // Looking Up
+            if ((float)GetTouchY(0) < (((float)leftCenterScreenPos.y / 100)*70))
+            {
+                fYaw -= fYawRoC * fElapsedTime;
+                if(fYaw < -1.0f) fYaw = -1.0f;
+
+            }
+
+            // Looking Down
+            if ((float)GetTouchY(0) > (((float)leftCenterScreenPos.y / 100)*130))
+            {
+                fYaw += fYawRoC * fElapsedTime;
+                if(fYaw > 1.0f) fYaw = 1.0f;
+
+
+            }
+
+        } else
+        {
+            // Move the camera back to centre, stops the dizzies!
+            if(fYaw > -0.01f && fYaw < 0.01f)
+            {
+                fYaw =0.0f;
+            }
+            if(fYaw >= 0.01)
+            {
+                fYaw -= fYawRoC * fElapsedTime;
+            }
+            if(fYaw <= -0.01)
+            {
+                fYaw += fYawRoC * fElapsedTime;
+            }
+
+        }
+
+
+    }
+
+
+    /*
+    * Displays messages on the screen
+    */
+    void DisplayMessages()
+    {
+        nFrameCount = (int32_t)GetFPS();
 
         std::string sLineBreak = "-------------------------";
-
+        vecMessages.push_back(sLineBreak);
         std::string sMessage = "OneLoneCoder.com";
         vecMessages.push_back(sMessage);
 
@@ -235,159 +495,48 @@ public:
         sMessage = sAppName + " - FPS: " + std::to_string(nFrameCount);
         vecMessages.push_back(sMessage);
 
-        sMessage = "---";
+        sMessage = "Sun X: " + std::to_string(vf3dSunLocation.x)
+                + " Sun Y: " + std::to_string(vf3dSunLocation.y)
+                + " Sun Z: " + std::to_string(vf3dSunLocation.z);
+
         vecMessages.push_back(sMessage);
 
+        sMessage = "Cam X: " + std::to_string(Cam3D.GetPosition().x)
+                + " Cam Y: " + std::to_string(Cam3D.GetPosition().y)
+                + " Cam Z: " + std::to_string(Cam3D.GetPosition().z);
 
-        sMessage = "Volume <" + std::to_string(volume) + "> Btn Up, Btn Down";
         vecMessages.push_back(sMessage);
-
-        if (ma.IsPlaying(song1))
-        {
-            sMessage = "Touch Screen: Pause";
-            vecMessages.push_back(sMessage);
-        }
-        else
-        {
-            sMessage = "Touch Screen: Play";
-            vecMessages.push_back(sMessage);
-        }
-
-        sMessage = "---";
-        vecMessages.push_back(sMessage);
-
-        sMessage = "Music: Joy Ride [Full version] by MusicLFiles";
-        vecMessages.push_back(sMessage);
-        sMessage = "Free download:";
-        vecMessages.push_back(sMessage);
-        sMessage = "https://filmmusic.io/song/11627-joy-ride-full-version";
-        vecMessages.push_back(sMessage);
-        sMessage = "Licensed under CC BY 4.0:";
-        vecMessages.push_back(sMessage);
-        sMessage = "https://filmmusic.io/standard-license";
-        vecMessages.push_back(sMessage);
-        vecMessages.push_back(sLineBreak);
-
-        std::string sTouchScreen = "Touch the screen with two fingers";
-        vecMessages.push_back(sTouchScreen);
 
         vecMessages.push_back(sLineBreak);
 
-        olc::vi2d centreScreenPos = GetScreenSize();
-        centreScreenPos.x = centreScreenPos.x / 2;
-        centreScreenPos.y = centreScreenPos.y / 2;
-        DrawTargetPointer(centreScreenPos, 50, 10);
+        // We always show TouchPoint 0 as we might need its values for debugging
+        olc::vi2d defaultTouchPos = GetTouchPos();
+        std::string defaultTouch = "Default Touch 0:  X: " + std::to_string(defaultTouchPos.x) + " Y: " + std::to_string(defaultTouchPos.y);
+        vecMessages.push_back(defaultTouch);
 
-        // Get the default touch point
-        // This is alway Index 0 and first touch piont
-        olc::vi2d defautTouchPos = GetTouchPos();
-        std::string defautTouch = "Default Touch 0:  X: " + std::to_string(defautTouchPos.x) + " Y: " + std::to_string(defautTouchPos.y);
-        vecMessages.push_back(defautTouch);
+        int8_t nTouch = 1;
 
-        if (GetTouch().bHeld)
+        while(GetTouch(nTouch).bHeld && nTouch < 6)
         {
-            DrawLine(centreScreenPos, defautTouchPos, olc::YELLOW, 0xF0F0F0F0);
-            DrawTargetPointer(defautTouchPos, 50, 10, olc::YELLOW);
+            defaultTouchPos = GetTouchPos(nTouch);
+            defaultTouch = "Default Touch " + std::to_string(nTouch) + ":  X: " + std::to_string(defaultTouchPos.x) + " Y: " + std::to_string(defaultTouchPos.y);
+            vecMessages.push_back(defaultTouch);
+            nTouch++;
         }
 
-        /*
-            You asked for Multi-touch... you got it!
-            You can support up to 126 touch points, however most phones and tablets can only handle 5
+        vecMessages.push_back(sLineBreak);
 
-            As always with touch sensors it is an approxmaite and alway will be
-            I would recommand no more that 3 points
 
-            When you are using lots of touch points it is best to run ClearTouchPoints();
-            every so often to ensure lost touch points are cleared
-
-        */
-
-        olc::vi2d touchPos;
-        // The more touch points the harder to manage
-        for (int i = 1; i < 5; i++)
-        {
-            if (GetTouch(i).bHeld)
-            {
-
-                touchPos = GetTouchPos(i);
-                std::string TouchID = "Touch ID: " + std::to_string(i) + " X: " + std::to_string(touchPos.x) + " Y: " + std::to_string(touchPos.y);
-                vecMessages.push_back(TouchID);
-                DrawLine(centreScreenPos, touchPos, olc::WHITE, 0xF0F0F0F0);
-                DrawTargetPointer(touchPos, 50, 10);
-
-            }
-        }
-
-        // Called once per frame, draws random coloured pixels
-        // Uncomment me if you dare
-        /*for (int x = 0; x < ScreenWidth(); x++)
-            for (int y = 0; y < ScreenHeight(); y++)
-                Draw(x, y, olc::Pixel(rand() % 256, rand() % 256, rand() % 256));
-        */
-
-        nStep = 10;
+        fStep = 10;
+        vf2MessPos.y = fStep;
         for (auto& s : vecMessages)
         {
-            DrawString(20, nStep, s);
-            nStep += 10;
+            DrawStringDecal(vf2MessPos, s);
+            vf2MessPos.y += fStep;
         }
         vecMessages.clear();
 
 
-
-
-        if (GetTouch(0).bPressed) {
-            // Toggle takes a sample ID (int) and either starts playback or pauses playback
-            // depending on whether the sample is currently playing, or not.
-            ma.Toggle(song1);
-        }
-
-        if (GetTouch(1).bPressed) {
-            ma.Play(sampleAFullPath);
-        }
-
-        if (GetKey(olc::A).bHeld)
-        {
-            volume += 1.0f * fElapsedTime;
-            if (volume > 1.0f) volume = 1.0f;
-        }
-
-        if (GetKey(olc::B).bHeld)
-        {
-            volume -= 1.0f * fElapsedTime;
-            if (volume < 0.0f) volume = 0.0f;
-        }
-
-        if (GetKey(olc::VOLUME_DOWN).bHeld) {
-            // NOTE: Android volume buttons can be read but cannot be captured
-            // NOTE: iOS volume buttons cannot be read and cannot be captured
-            volume -= 1.0f * fElapsedTime;
-            if (volume < 0.0f) volume = 0.0f;
-        }
-
-        if (GetKey(olc::VOLUME_UP).bHeld) {
-            // NOTE: Android volume buttons can be read but cannot be captured
-            // NOTE: iOS volume buttons cannot be read and cannot be captured
-            volume += 1.0f * fElapsedTime;
-            if (volume > 1.0f) volume = 1.0f;
-        }
-
-        // Set volume, takes a sample ID (int), and a float
-        // 0.0 to 1.0 where 1.0 is full volume
-        ma.SetVolume(song1, volume);
-
-        // Gets the current playback position in the provided sample ID (int),
-        // returns float 0.0 to 1.0, nearer 1.0 is near the end
-        seek = ma.GetCursorFloat(song1);
-
-
-        // Draw Logo
-        DrawDecal({ 5.0f, (float)ScreenHeight() - 100 }, decOLCPGEMobLogo, { 0.5f, 0.5f });
-
-        // Draw The Playback Cursor (aka the position in the sound file)
-        FillRect({ 0, ScreenHeight() - 10 }, { (int)(ScreenWidth() * seek), 10 }, olc::YELLOW);
-
-        return true;
     }
 
     bool OnUserDestroy() override {
@@ -401,7 +550,7 @@ public:
         // It depends on why the OS is pausing your game tho, Phone call, etc
         // It is best to save a simple Struct of your settings, i.e. current level, player position etc
         // NOTE: The OS can terminate all of your data, pointers, sprites, layers can be freed
-        // Therefore do not save sprites, pointers etc 
+        // Therefore do not save sprites, pointers etc
 
         // Example 1: vector
         vecLastState.clear();
@@ -420,7 +569,7 @@ public:
 
         std::string dataPath(internalPath);
 
-        // internalDataPath points directly to the files/ directory                                  
+        // internalDataPath points directly to the files/ directory
         std::string lastStateFile = dataPath + "/lastStateFile.bin";
 
         std::ofstream file(lastStateFile, std::ios::out | std::ios::binary);
@@ -442,7 +591,7 @@ public:
 
     void OnRestoreStateRequested() override
     {
-        // This will fire every time your game launches 
+        // This will fire every time your game launches
         // OnUserCreate will be fired again as the OS may have terminated all your data
 
 #if defined(__ANDROID__)
@@ -482,6 +631,14 @@ public:
 
     }
 
+
+    void OnLowMemoryWarning() override
+    {
+        /// NOTE: Fires when the OS is about to close your app due low memory availability
+        /// Use this method to clean up any resources to reduce your memory usage
+        /// If you can reduce your memory usage enough the OS will automatically cancel the application termination event
+
+    }
 };
 
 
@@ -548,13 +705,13 @@ int ios_main(IOSNativeApp* pIOSNatvieApp)
     //
 
     /*
-        Note it is best to use HD(0, 0, ? X ? pixel, Fullscreen = true) the engine can scale this best for all screen sizes,
+        Note it is best to use HD(1280, 720, ? X ? pixel, Fullscreen = true) the engine can scale this best for all screen sizes,
         without affecting performance... well it will have a very small affect, it will depend on your pixel size
         Note: cohesion is currently not working
         Note: It is best to set maintain_aspect_ratio to false, Fullscreen to true and use the olcPGEX_TransformView.h to manage your world-view
         in short iOS does not want to play nice, the screen ratios and renta displays make maintaining a full screen with aspect radio a pain to manage
     */
-    pIOSNatvieApp->SetPGEConstruct(0, 0, 2, 2, true, true, false, true);
+    pIOSNatvieApp->SetPGEConstruct(1280, 720, 2, 2, true, true, false);
 
 
     // We now need to return SUCCESS or FAILURE to get the party stated!!!!
@@ -562,5 +719,3 @@ int ios_main(IOSNativeApp* pIOSNatvieApp)
 }
 
 #endif
-
-

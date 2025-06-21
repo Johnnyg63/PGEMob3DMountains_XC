@@ -47,6 +47,7 @@
 		89D1D8A92BA5D3D8006CB982 /* maps */ = {isa = PBXFileReference; lastKnownFileType = folder; name = maps; path = assets/maps; sourceTree = "<group>"; };
 		89D1D8AB2BA5D3E9006CB982 /* objectfiles */ = {isa = PBXFileReference; lastKnownFileType = folder; name = objectfiles; path = assets/objectfiles; sourceTree = "<group>"; };
 		89D1D8AD2BA5D3F7006CB982 /* sounds */ = {isa = PBXFileReference; lastKnownFileType = folder; name = sounds; path = assets/sounds; sourceTree = "<group>"; };
+		89E328A22E06B10700B8A4B0 /* olcUTIL_Hardware3D.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = olcUTIL_Hardware3D.h; sourceTree = "<group>"; };
 		89FB122F2B81029100CC0B39 /* khrplatform.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = khrplatform.h; path = KHR/khrplatform.h; sourceTree = "<group>"; };
 		9DC1118F1B2B501900AAD119 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		9DC111911B2B501F00AAD119 /* GLKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GLKit.framework; path = System/Library/Frameworks/GLKit.framework; sourceTree = SDKROOT; };
@@ -109,6 +110,14 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		89E328A12E06B10700B8A4B0 /* utilities */ = {
+			isa = PBXGroup;
+			children = (
+				89E328A22E06B10700B8A4B0 /* olcUTIL_Hardware3D.h */,
+			);
+			path = utilities;
+			sourceTree = "<group>";
+		};
 		928188e63cf24a6ca483cb34 /* KHR */ = {
 			isa = PBXGroup;
 			children = (
@@ -166,6 +175,7 @@
 		D732ADF91AD8974300D69854 /* Supporting Files */ = {
 			isa = PBXGroup;
 			children = (
+				89E328A12E06B10700B8A4B0 /* utilities */,
 				D732ADFB1AD8974300D69854 /* main.mm */,
 				464a0f8892c14e8c9ba6c39f /* EGL */,
 				928188e63cf24a6ca483cb34 /* KHR */,
@@ -394,7 +404,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CLANG_DEBUG_INFORMATION_LEVEL = default;
 				CLANG_X86_VECTOR_INSTRUCTIONS = sse4.2;
-				DEVELOPMENT_TEAM = TCY2PTFQ7T;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -422,7 +432,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CLANG_X86_VECTOR_INSTRUCTIONS = avx2;
-				DEVELOPMENT_TEAM = TCY2PTFQ7T;
+				DEVELOPMENT_TEAM = "";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GCC_PREPROCESSOR_DEFINITIONS = (
